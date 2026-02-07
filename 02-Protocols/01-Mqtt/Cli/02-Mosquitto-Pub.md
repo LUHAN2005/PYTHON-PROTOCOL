@@ -1,137 +1,159 @@
 # 02-Mosquitto-Pub (MASTER)
 
-> Mục tiêu của bài này: Sau khi học xong, bạn có thể **publish MQTT bằng `mosquitto_pub` như một “pro”**: gửi payload text/binary/JSON, QoS 0/1/2, retain, will message (LWT), username/password, TLS, và biết cách test end-to-end bằng `mosquitto_sub` + broker log.
+> **Mục tiêu:** Sau khi học xong, bạn có thể publish MQTT bằng `mosquitto_pub` “như pro”: gửi payload text/binary/JSON, QoS 0/1/2, retain, will message (LWT), username/password, TLS, và biết cách test end‑to‑end bằng `mosquitto_sub` + broker log.
 
 ---
 
 ## Mục lục
 
 1. [Mosquitto_pub là gì? Dùng để làm gì?](#1-mosquitto_pub-là-gì-dùng-để-làm-gì)
-2. [Form khởi động chuẩn (copy/paste)](#2-form-khởi-động-chuẩn-copypaste)
-3. [Cú pháp chung & tư duy đọc lệnh](#3-cú-pháp-chung--tư-duy-đọc-lệnh)
-4. [Topic & payload: gửi gì lên broker?](#4-topic--payload-gửi-gì-lên-broker)
-5. [QoS 0/1/2 khi publish](#5-qos-012-khi-publish)
-6. [Retain: “lưu message cuối” để subscriber vào sau vẫn thấy](#6-retain-lưu-message-cuối-để-subscriber-vào-sau-vẫn-thấy)
-7. [Will Message (LWT): thiết bị chết thì broker báo](#7-will-message-lwt-thiết-bị-chết-thì-broker-báo)
-8. [Các lệnh thường dùng (kèm giải thích + ví dụ)](#8-các-lệnh-thường-dùng-kèm-giải-thích--ví-dụ)
-9. [Bảng tổng hợp flags phổ biến](#9-bảng-tổng-hợp-flags-phổ-biến)
-10. [Debug end-to-end: broker log + mosquitto_sub](#10-debug-end-to-end-broker-log--mosquitto_sub)
-11. [Lỗi thường gặp & cách xử lý nhanh](#11-lỗi-thường-gặp--cách-xử-lý-nhanh)
-12. [Bài tập thực hành](#12-bài-tập-thực-hành)
+2. [Workflow test chuẩn (nhìn là nhớ)](#2-workflow-test-chuẩn-nhìn-là-nhớ)
+3. [Form chạy nhanh (copy/paste)](#3-form-chạy-nhanh-copypaste)
+4. [Cú pháp chung & cách đọc lệnh](#4-cú-pháp-chung--cách-đọc-lệnh)
+5. [Topic & payload: gửi gì lên broker?](#5-topic--payload-gửi-gì-lên-broker)
+6. [QoS 0/1/2 khi publish](#6-qos-012-khi-publish)
+7. [Retain: lưu trạng thái cuối](#7-retain-lưu-trạng-thái-cuối)
+8. [Will Message (LWT): chết bất thường broker báo](#8-will-message-lwt-chết-bất-thường-broker-báo)
+9. [Các lệnh thường dùng (kèm giải thích)](#9-các-lệnh-thường-dùng-kèm-giải-thích)
+10. [Bảng tổng hợp flags phổ biến](#10-bảng-tổng-hợp-flags-phổ-biến)
+11. [Debug end-to-end: broker log + mosquitto_sub](#11-debug-end-to-end-broker-log--mosquitto_sub)
+12. [Lỗi thường gặp & cách xử lý nhanh](#12-lỗi-thường-gặp--cách-xử-lý-nhanh)
+13. [FORM CHUẨN CODE Python Publisher (Level 8: offline queue/online flush)](#13-form-chuẩn-code-python-publisher-level-8-offline-queueonline-flush)
+14. [Bài tập thực hành](#14-bài-tập-thực-hành)
 
 ---
 
 ## 1. Mosquitto_pub là gì? Dùng để làm gì?
 
-### 1.1 mosquitto_pub (Publisher CLI)
+### 1.1 `mosquitto_pub` (Publisher CLI)
 
-`mosquitto_pub` là tool CLI để:
+`mosquitto_pub` là tool dòng lệnh để:
 
-* kết nối tới broker
-* publish message lên một topic
+* Kết nối tới broker MQTT
+* Publish message lên một topic
 
-### 1.2 Tại sao phải master mosquitto_pub?
+### 1.2 Vì sao phải master `mosquitto_pub`?
 
-Vì nó là “dao mổ” để debug nhanh:
+Vì nó là “dao mổ” debug nhanh:
 
-* broker có nhận message không?
-* topic đúng chưa?
-* QoS/retain hoạt động đúng chưa?
+* Broker có nhận message không?
+* Topic đúng chưa?
+* QoS/retain chạy đúng chưa?
 
-> Khi học protocol, bạn luôn cần **một cách publish nhanh** không phụ thuộc code Python.
+> Khi code Python lỗi, bạn vẫn có thể test broker/topic bằng CLI trong 5 giây.
 
 ---
 
-## 2. Form khởi động chuẩn (copy/paste)
+## 2. Workflow test chuẩn (nhìn là nhớ)
 
-### 2.1 Form tối thiểu (local)
+> Nhớ 3 cửa sổ (hoặc 3 tab terminal): **BROKER → SUB → PUB**
+
+1. **BROKER (log verbose)**
+
+* Mục tiêu: xem broker có nhận/gửi PUBLISH không
+
+2. **SUB (nghe topic)**
+
+* Mục tiêu: quan sát message thực tế đến subscriber
+
+3. **PUB (bắn message)**
+
+* Mục tiêu: gửi nhanh payload để test
+
+---
+
+## 3. Form chạy nhanh (copy/paste)
+
+### 3.1 Form tối thiểu (local)
 
 ```bat
 mosquitto_pub -h localhost -p 1883 -t testing -m "hi"
 ```
 
-### 2.2 Form “chuẩn bài” (client id + QoS + retain)
+* `-h -p`: broker
+* `-t`: topic
+* `-m`: payload (string)
+
+### 3.2 Form “chuẩn bài” (client id + QoS + retain)
 
 ```bat
 mosquitto_pub -h localhost -p 1883 -t "test/retain" -m "LAST" -q 1 -r -i pub1
 ```
 
-**Giải thích nhanh:**
-
-* `-h -p`: nơi publish đến
-* `-t`: topic
-* `-m`: payload
-* `-q 1`: QoS publish
+* `-q 1`: QoS 1
 * `-r`: retain
-* `-i pub1`: client_id
+* `-i pub1`: client id
 
-### 2.3 Form remote (auth)
+### 3.3 Form remote (auth)
 
 ```bat
 mosquitto_pub -h <HOST> -p 1883 -t "sensors/room1/temp" -m "27.5" -q 1 -u <USER> -P <PASS>
 ```
 
+### 3.4 Form JSON (PowerShell dễ nhất)
+
+```powershell
+mosquitto_pub -h localhost -p 1883 -t sensors/room1/temp -m '{"temp":27.5,"unit":"C"}'
+```
+
+> Windows CMD escape JSON hơi mệt. Nếu cần, dùng PowerShell hoặc đưa JSON vào file rồi `-f`.
+
 ---
 
-## 3. Cú pháp chung & tư duy đọc lệnh
+## 4. Cú pháp chung & cách đọc lệnh
 
-### 3.1 Cú pháp
+### 4.1 Cú pháp
 
 ```text
 mosquitto_pub [options]
 ```
 
-### 3.2 Tư duy đọc lệnh
+### 4.2 Cách đọc 1 lệnh `mosquitto_pub` (đọc đúng thứ tự này)
 
-Nhìn một lệnh `mosquitto_pub`, hãy đọc theo thứ tự:
+1. **Publish đến đâu?** `-h`, `-p`, (TLS/auth nếu có)
+2. **Topic nào?** `-t`
+3. **Payload gì?** `-m` / `-n` / `-f` / stdin
+4. **Độ đảm bảo?** `-q`
+5. **Có lưu retained không?** `-r`
 
-1. **Publish đến đâu?** (`-h`, `-p`, TLS, auth)
-2. **Topic nào?** (`-t`)
-3. **Payload gì?** (`-m`, `-n`, `-f`, stdin)
-4. **Độ đảm bảo?** (`-q`)
-5. **Lưu lại cho người vào sau?** (`-r`)
+> Chỉ cần nhìn theo 5 câu hỏi này là đọc được 99% lệnh.
 
 ---
 
-## 4. Topic & payload: gửi gì lên broker?
+## 5. Topic & payload: gửi gì lên broker?
 
-### 4.1 Topic
+### 5.1 Topic
 
-Topic là “kênh” logical để subscriber lọc message.
+Topic là “kênh” để subscriber lọc message.
+
 Ví dụ:
 
 * `sensors/room1/temp`
 * `devices/esp32-01/status`
 * `alerts/fire`
 
-### 4.2 Payload (nội dung message)
+### 5.2 Payload
 
 Payload thực chất là **bytes**. Bạn có thể gửi:
 
-* string
-* JSON
-* số (dưới dạng string)
-* binary (file)
+* Text: `"hi"`
+* Số (nhưng vẫn là string): `"27.5"`
+* JSON: `{"temp":27.5}`
+* Binary: file `.bin`
 
-Ví dụ payload JSON:
-
-```json
-{"temp": 27.5, "unit": "C"}
-```
-
-> MQTT không tự hiểu JSON. JSON chỉ là quy ước của bạn ở tầng ứng dụng.
+> MQTT không tự hiểu JSON. JSON chỉ là quy ước tầng ứng dụng.
 
 ---
 
-## 5. QoS (0/1/2) khi publish
+## 6. QoS 0/1/2 khi publish
 
-### 5.1 Ý nghĩa QoS
+### 6.1 Ý nghĩa
 
-* **QoS 0 (at most once)**: gửi nhanh, có thể mất, không ACK
-* **QoS 1 (at least once)**: broker ACK, có thể trùng (subscriber có thể nhận 2 lần)
-* **QoS 2 (exactly once)**: đúng 1 lần, overhead cao
+* **QoS 0 (at most once):** nhanh, có thể mất, không ACK
+* **QoS 1 (at least once):** có ACK, có thể trùng message
+* **QoS 2 (exactly once):** đúng 1 lần, overhead cao
 
-### 5.2 QoS thực tế nhận ở subscriber
+### 6.2 QoS thực tế ở subscriber
 
 QoS nhận = **min(QoS publish, QoS subscribe)**.
 
@@ -142,112 +164,118 @@ Ví dụ:
 
 ---
 
-## 6. Retain: “lưu message cuối” để subscriber vào sau vẫn thấy
+## 7. Retain: lưu trạng thái cuối
 
-### 6.1 Retain là gì?
+### 7.1 Retain dùng khi nào?
 
-`retain` biến message thành “trạng thái cuối cùng” (last-known state) của một topic.
+Retain phù hợp với **trạng thái (state)**:
 
-Ví dụ:
+* `devices/x/status = online/offline`
+* `sensors/room1/temp = 27.5` (nếu muốn ai vào sau cũng thấy nhiệt độ cuối)
 
-* `devices/esp32-01/status = online/offline`
-* `sensors/room1/temp = 27.5`
+Không phù hợp với “event spam” kiểu telemetry 10 message/giây.
 
-Subscriber vào sau subscribe sẽ nhận ngay retained message.
-
-### 6.2 Publish retained
+### 7.2 Publish retained
 
 ```bat
-mosquitto_pub -h localhost -p 1883 -t testing -m "HELLO_RETAIN" -r
+mosquitto_pub -h localhost -p 1883 -t "devices/x/status" -m "online" -r
 ```
 
-### 6.3 Xoá retained
+### 7.3 Xoá retained
 
-Gửi retained null payload:
+Gửi **null payload** và bật `-r`:
 
 ```bat
-mosquitto_pub -h localhost -p 1883 -t testing -n -r
+mosquitto_pub -h localhost -p 1883 -t "devices/x/status" -n -r
 ```
 
 ---
 
-## 7. Will Message (LWT): thiết bị chết thì broker báo
+## 8. Will Message (LWT): chết bất thường broker báo
 
-### 7.1 LWT là gì?
+### 8.1 LWT là gì?
 
-**Last Will and Testament**: message broker sẽ publish thay bạn nếu client **mất kết nối bất thường** (crash, rớt mạng).
+**Last Will and Testament**: message broker sẽ publish thay bạn nếu client **mất kết nối bất thường** (crash, rớt mạng, mất điện).
 
-Cực hữu ích cho IoT:
+### 8.2 Tư duy thiết kế online/offline chuẩn
 
-* thiết bị online/offline
+* Khi connect thành công: publish retained `status=online`
+* Set will (retained) `status=offline`
+* Nếu client chết bất thường: broker publish `offline`
 
-### 7.2 Tư duy thiết kế LWT
+> Với Python (paho-mqtt) bạn dùng `will_set(...)` trước `connect()`.
 
-* Khi connect: publish retained `status=online`
-* Set will retained `status=offline`
-* Nếu chết bất thường: broker publish `offline`
-
-> LWT thường cấu hình ở client (Python). Nhưng bạn cần hiểu nó để đọc log hệ thống.
+> Với `mosquitto_pub`, một số bản có flags `--will-topic`, `--will-payload`, `--will-qos`, `--will-retain` (tên có thể khác tùy phiên bản). Nếu máy bạn không có, cứ ưu tiên hiểu concept và dùng Python để set will.
 
 ---
 
-## 8. Các lệnh thường dùng (kèm giải thích + ví dụ)
+## 9. Các lệnh thường dùng (kèm giải thích)
 
-### 8.1 Publish message text
+### 9.1 Publish text (cơ bản)
 
 ```bat
 mosquitto_pub -h localhost -p 1883 -t testing -m "hi"
 ```
 
-### 8.2 Publish QoS1
+* Dùng để test nhanh topic.
+
+### 9.2 Publish QoS 1
 
 ```bat
 mosquitto_pub -h localhost -p 1883 -t testing -m "hi" -q 1
 ```
 
-### 8.3 Publish retained state
+* Dùng để thấy khác biệt QoS0 vs QoS1 (ACK, có thể trùng).
+
+### 9.3 Publish retained state
 
 ```bat
 mosquitto_pub -h localhost -p 1883 -t "devices/esp32-01/status" -m "online" -r
 ```
 
-### 8.4 Publish JSON
+* Dùng cho trạng thái online/offline.
 
-> Windows CMD cần escape dấu nháy. Bạn có thể dùng PowerShell sẽ dễ hơn.
-
-**PowerShell:**
+### 9.4 Publish JSON (PowerShell)
 
 ```powershell
 mosquitto_pub -h localhost -p 1883 -t sensors/room1/temp -m '{"temp":27.5,"unit":"C"}'
 ```
 
-### 8.5 Publish từ file
+* Dùng khi app tầng trên parse JSON.
+
+### 9.5 Publish từ file (binary / blob)
 
 ```bat
 mosquitto_pub -h localhost -p 1883 -t "files/blob" -f "path\to\data.bin"
 ```
 
-### 8.6 Publish payload rỗng (null payload)
+* Dùng để bắn payload dạng bytes.
+
+### 9.6 Publish null payload
 
 ```bat
 mosquitto_pub -h localhost -p 1883 -t testing -n
 ```
 
-### 8.7 Publish nhiều lần (loop) — ví dụ “giả sensor”
+* Dùng để gửi payload rỗng.
 
-**PowerShell:**
+### 9.7 Loop publish (giả sensor) — PowerShell
 
 ```powershell
 1..10 | % { mosquitto_pub -h localhost -p 1883 -t sensors/room1/temp -m "$_"; Start-Sleep -Milliseconds 200 }
 ```
 
-### 8.8 Auth
+* Dùng để test subscriber đang nhận liên tục.
+
+### 9.8 Auth username/password
 
 ```bat
 mosquitto_pub -h <HOST> -p 1883 -t testing -m "hi" -u <USER> -P <PASS>
 ```
 
-### 8.9 TLS (cơ bản)
+* Dùng khi broker bật auth.
+
+### 9.9 TLS cơ bản
 
 **Verify CA:**
 
@@ -263,7 +291,7 @@ mosquitto_pub -h <HOST> -p 8883 --cafile <CA.pem> --cert <client.crt> --key <cli
 
 ---
 
-## 9. Bảng tổng hợp flags phổ biến
+## 10. Bảng tổng hợp flags phổ biến
 
 | Mục tiêu     | Flag       | Ý nghĩa          | Ví dụ               |
 | ------------ | ---------- | ---------------- | ------------------- |
@@ -284,69 +312,389 @@ mosquitto_pub -h <HOST> -p 8883 --cafile <CA.pem> --cert <client.crt> --key <cli
 
 ---
 
-## 10. Debug end-to-end: broker log + mosquitto_sub
+## 11. Debug end-to-end: broker log + mosquitto_sub
 
-### 10.1 Mở broker log (verbose)
+### 11.1 Chạy broker verbose (Windows ví dụ)
 
 ```bat
 "C:\Program Files\mosquitto\mosquitto.exe" -v -p 1883
 ```
 
-### 10.2 Mở subscriber để quan sát
+* `-v`: verbose log
+* `-p 1883`: port
+
+### 11.2 Mở subscriber quan sát
 
 ```bat
 mosquitto_sub -h localhost -p 1883 -t "#" -v
 ```
 
-### 10.3 Publish
+* `-t "#"`: nghe tất cả topic
+* `-v`: in kèm topic
+
+### 11.3 Publish test
 
 ```bat
 mosquitto_pub -h localhost -p 1883 -t testing -m "hi"
 ```
 
-Bạn sẽ thấy:
+**Kỳ vọng thấy:**
 
-* subscriber in: `testing hi`
-* broker log: `Received PUBLISH ...` + `Sending PUBLISH to ...` (nếu có subscriber)
+* SUB in: `testing hi`
+* BROKER log có dòng dạng “Received PUBLISH …”
 
 ---
 
-## 11. Lỗi thường gặp & cách xử lý nhanh
+## 12. Lỗi thường gặp & cách xử lý nhanh
 
-### 11.1 Publish chạy nhưng subscriber không thấy
+### 12.1 Publish chạy nhưng subscriber không thấy
 
 Checklist:
 
-1. topic publish và topic subscribe có match không?
-2. sub chạy trước hay sau? (QoS0 nếu sub vào sau thì mất, muốn vào sau vẫn thấy → dùng retain)
-3. broker có forward không? (xem broker log)
+1. Topic pub và topic sub có match không?
 
-### 11.2 Nhầm port / broker không chạy
+* Sub: `test/#` sẽ nhận `test/a`, `test/a/b`…
 
-* Nếu broker đang chạy service, bạn chạy thêm broker tay sẽ báo port đã bị dùng.
+2. Sub chạy trước hay sau?
 
-### 11.3 JSON bị lỗi dấu nháy trên Windows
+* QoS0: sub vào sau có thể không thấy cái đã gửi.
+* Muốn sub vào sau vẫn thấy: dùng retain.
 
-* Dùng PowerShell và bọc JSON trong `'...'` như ví dụ.
-* Hoặc viết JSON vào file rồi dùng `-f`.
+3. Broker có forward không?
+
+* Mở broker `-v` để thấy log.
+
+### 12.2 Nhầm port / broker không chạy
+
+* Nếu broker không chạy → pub/sub sẽ báo không connect được.
+* Nếu broker đang chạy service → chạy thêm broker tay có thể báo port đang bị dùng.
+
+### 12.3 JSON lỗi dấu nháy trên Windows
+
+* Dùng PowerShell và bọc JSON trong `'...'`.
+* Hoặc viết JSON vào file rồi publish bằng `-f`.
 
 ---
 
-## 12. Bài tập thực hành
+## 13. FORM CHUẨN CODE Python Publisher (Level 8: offline queue/online flush)
 
-1. Publish `test/a`, `test/a/b` và dùng `mosquitto_sub -t "test/#"` để kiểm tra.
-2. Publish QoS1 và quan sát khác gì QoS0.
-3. Publish retained cho `devices/x/status`, rồi mở subscriber sau để xem retained hoạt động.
-4. Xoá retained bằng `-n -r`.
-5. Publish JSON payload và luyện cách escape trên Windows.
+> **Bạn nói đúng:** đưa code trần không giúp “nhớ lại”. Phần này sẽ dẫn dắt **Level 1 → Level 8**, rồi giải thích **từng khối code** đang làm gì để lần sau quên mở ra đọc là chạy được ngay.
 
 ---
 
-### Gợi ý học tiếp
+### 13.0 Lộ trình Level 1 → Level 8 (tư duy tăng cấp)
 
-Sau `mosquitto_pub`, bạn sẽ hiểu code Python publish nhanh hơn vì:
+> Mỗi level bạn chỉ thêm **1 ý**. Nhớ đúng “mục tiêu” của level là làm được.
 
-* mapping 1-1: `publish(topic, payload, qos, retain)`
-* hiểu QoS/retain ảnh hưởng thực tế ra sao
-* debug bằng CLI khi code bị lỗi
+* **Level 1 — Publish tối thiểu**
 
+  * Mục tiêu: publish được 1 message.
+  * Cốt lõi: `connect()` → `publish()` → `disconnect()`.
+
+* **Level 2 — Topic/payload chuẩn**
+
+  * Mục tiêu: phân biệt rõ **topic** (kênh) và **payload** (nội dung).
+  * Cốt lõi: đặt topic theo kiểu `devices/<id>/telemetry`.
+
+* **Level 3 — QoS**
+
+  * Mục tiêu: biết chọn QoS 0/1/2.
+  * Cốt lõi: publish telemetry thường QoS0/1, status thường QoS1.
+
+* **Level 4 — Retain (state)**
+
+  * Mục tiêu: subscriber vào sau vẫn thấy **trạng thái cuối**.
+  * Cốt lõi: status `online/offline` **retain=True**.
+
+* **Level 5 — Callback cơ bản**
+
+  * Mục tiêu: biết “khi connect/disconnect/publish” thì chạy hàm nào.
+  * Cốt lõi: `on_connect`, `on_disconnect`, `on_publish`.
+
+* **Level 6 — Loop chuẩn (không bị block)**
+
+  * Mục tiêu: client xử lý network ổn định.
+  * Cốt lõi: `loop_start()` (chạy network loop nền).
+
+* **Level 7 — Reconnect/backoff**
+
+  * Mục tiêu: rớt mạng vẫn tự cố gắng nối lại.
+  * Cốt lõi: `reconnect_delay_set(min_delay, max_delay)`.
+
+* **Level 8 — Offline queue + Online flush**
+
+  * Mục tiêu: **mất mạng không mất dữ liệu** (tạm thời lưu lại), có mạng lại thì **gửi bù** trước rồi gửi bình thường.
+  * Cốt lõi: `if not is_connected(): queue.append(...)` và khi online `flush queue`.
+
+---
+
+### 13.1 Sơ đồ “đọc 10 giây là hiểu”
+
+* **2 topic chuẩn cho device**
+
+  * `devices/<id>/status`  → **retain** (state)
+  * `devices/<id>/telemetry` → **không retain** (data chạy liên tục)
+
+* **Luồng chạy chính**
+
+  1. Khi **connect**: publish `status=online` (retain)
+  2. Nếu **chết bất thường**: broker tự publish `status=offline` nhờ **LWT**
+  3. Vòng lặp:
+
+     * Offline → **queue lại**
+     * Online → **flush queue** → publish message hiện tại
+
+---
+
+### 13.2 Code Level 8 (copy chạy) + Giải thích từng khối
+
+> Mẹo học nhanh: nhìn ký hiệu **(A) → (J)** trên code, đọc giải thích ngay dưới.
+
+```python
+"""
+LEVEL 8 - Publisher chuẩn vị trí
+Mục tiêu: offline thì queue lại, online thì flush rồi gửi bình thường
+
+THỨ TỰ CODE
+1) tạo client
+2) will_set(...)
+3) gắn callbacks (on_connect, on_disconnect, on_publish)
+4) connect(...)
+5) loop_start()
+"""
+
+from paho.mqtt import client as mqtt
+import time
+
+# ====== (A) Cấu hình LEVEL 8 (bạn có thể đổi) ======
+DEVICE_ID = "LUHAN"
+TOPIC_TELEMETRY = f"devices/{DEVICE_ID}/telemetry"   # <-- telemetry (KHÔNG retain)
+TOPIC_STATUS    = f"devices/{DEVICE_ID}/status"      # <-- status (retain)
+
+HOST = "localhost"
+PORT = 1883
+KEEPALIVE = 60
+
+PUBLISH_INTERVAL = 0.5       # <-- chu kỳ gửi bình thường (online)
+OFFLINE_SLEEP    = 0.2       # <-- ngủ khi offline (đỡ CPU)
+MAX_QUEUE = 500              # <-- giới hạn queue
+
+# ====== (B) Queue LEVEL 8 ======
+queue = []  # lưu tuple (topic, payload)
+
+# ====== (C) 1) Tạo client ======
+client = mqtt.Client(
+    mqtt.CallbackAPIVersion.VERSION2,
+    client_id=DEVICE_ID
+)
+
+# ====== (D) 2) LWT: phải đặt TRƯỚC connect ======
+client.will_set(TOPIC_STATUS, "offline", qos=1, retain=True)
+
+# (Tuỳ chọn Level 7) backoff reconnect
+client.reconnect_delay_set(min_delay=1, max_delay=30)
+
+# ====== (E) 3) Callbacks ======
+def on_connect(client: mqtt.Client, userdata, flags, reason_code, properties):
+    print("Connect:", reason_code)
+    # báo trạng thái online (retain)
+    client.publish(TOPIC_STATUS, "online", qos=1, retain=True)
+
+def on_disconnect(client: mqtt.Client, userdata, reason_code, properties):
+    print("Disconnect:", reason_code)
+
+def on_publish(client: mqtt.Client, userdata, mid, reason_code, properties):
+    print("Published mid:", mid)
+
+# gắn callback
+client.on_connect = on_connect
+client.on_disconnect = on_disconnect
+client.on_publish = on_publish
+
+# ====== (F) 4) Connect ======
+try:
+    client.connect(HOST, PORT, KEEPALIVE)
+except Exception as e:
+    print("Kết nối thất bại:", e)
+
+# ====== (G) 5) Loop start ======
+client.loop_start()
+
+try:
+    while True:
+        # ====== (H) Nhánh OFFLINE ======
+        if not client.is_connected():
+            payload = "hi"  # TODO: thay bằng data thật / JSON
+
+            # queue đầy thì drop cái cũ nhất
+            if len(queue) >= MAX_QUEUE:
+                queue.pop(0)
+
+            # lưu message vào queue (FIFO)
+            queue.append((TOPIC_TELEMETRY, payload))
+
+            # thử kết nối lại
+            try:
+                client.reconnect()   # thử reconnect (nếu fail thì thôi)
+            except:
+                pass
+
+            time.sleep(OFFLINE_SLEEP)
+            continue
+
+        # ====== (I) Nhánh ONLINE: flush queue trước ======
+        while queue and client.is_connected():
+            topic, payload = queue.pop(0)
+            client.publish(topic, payload, qos=1, retain=False)
+            time.sleep(0.01)  # chống dồn dập quá
+
+        # ====== (J) Gửi message hiện tại (online) ======
+        payload = "hi"  # TODO: thay bằng data thật / JSON
+        client.publish(TOPIC_TELEMETRY, payload, qos=1, retain=False)
+
+        time.sleep(PUBLISH_INTERVAL)
+
+except KeyboardInterrupt:
+    print("Chương trình đã kết thúc")
+
+finally:
+    # cleanup gọn
+    client.loop_stop()
+    client.disconnect()
+```
+
+#### Giải thích nhanh từng phần (đọc là nhớ)
+
+* **(A) Cấu hình**
+
+  * `DEVICE_ID`: tên thiết bị (client_id)
+  * `TOPIC_STATUS`: nơi gửi trạng thái online/offline (**retain**)
+  * `TOPIC_TELEMETRY`: nơi gửi data chạy liên tục (**không retain**)
+  * `PUBLISH_INTERVAL`: online thì mỗi bao lâu gửi 1 message
+  * `OFFLINE_SLEEP`: offline thì ngủ để đỡ ăn CPU
+  * `MAX_QUEUE`: tối đa bao nhiêu message bị “kẹt” khi offline
+
+* **(B) queue = []**
+
+  * Là “hàng chờ” tạm: mỗi phần tử là `(topic, payload)`.
+  * Khi offline → `append(...)`.
+  * Khi online → lấy ra gửi dần.
+
+* **(C) mqtt.Client(...)**
+
+  * Tạo client MQTT. `client_id=DEVICE_ID` để broker nhận diện thiết bị.
+
+* **(D) will_set(status=offline)**
+
+  * Đây là **LWT**: nếu client chết bất thường (mất điện, crash, rớt mạng) → broker tự publish `offline` lên topic status.
+  * Vì vậy **phải đặt trước `connect()`**.
+
+* **(E) Callbacks**
+
+  * `on_connect`: chạy khi connect thành công. Ở đây bạn publish `status=online` (retain) để ai sub vào sau cũng biết thiết bị đang online.
+  * `on_disconnect`: log lúc mất kết nối.
+  * `on_publish`: log khi publish xong (để quan sát).
+
+* **(F) connect + try/except**
+
+  * Nếu broker chưa chạy, chương trình vẫn không chết ngay (vẫn vào vòng lặp và queue lại).
+
+* **(G) loop_start()**
+
+  * Bật network loop chạy nền, giúp client tự xử lý connect/disconnect/publish.
+
+* **(H) Nhánh OFFLINE**
+
+  * Điều kiện: `not client.is_connected()`.
+  * Hành động:
+
+    * Tạo `payload` (sau thay bằng JSON/data thật)
+    * Nếu queue đầy → bỏ message cũ nhất
+    * `queue.append(...)` để **không mất dữ liệu**
+    * `client.reconnect()` để thử lên lại
+
+* **(I) Nhánh ONLINE: flush queue**
+
+  * Khi có mạng: gửi các message đã bị “kẹt” trước đó.
+  * `time.sleep(0.01)` để không bắn dồn dập.
+
+* **(J) Publish message hiện tại**
+
+  * Đây là message “thực tế” của vòng lặp hiện tại (không phải message bù).
+
+---
+
+### 13.3 Copy chạy nhanh (test đúng bài)
+
+**Terminal 1 (SUB quan sát):**
+
+```bat
+mosquitto_sub -h localhost -p 1883 -t "devices/LUHAN/#" -v
+```
+
+**Terminal 2 (chạy broker verbose nếu cần):**
+
+```bat
+"C:\Program Files\mosquitto\mosquitto.exe" -v -p 1883
+```
+
+**Terminal 3 (chạy Python):**
+
+```bat
+python your_file.py
+```
+
+**Cách test OFFLINE → ONLINE nhanh:**
+
+1. Tắt broker (hoặc stop service) → Python sẽ chuyển sang nhánh OFFLINE và queue.
+2. Bật broker lại → Python connect lại → **flush queue** rồi gửi bình thường.
+
+> Nếu nhìn sub sẽ thấy: khi broker lên lại, telemetry sẽ “đổ” một loạt (flush) rồi về nhịp đều.
+
+## 14. Bài tập thực hành
+
+1. Publish `test/a`, `test/a/b` và dùng:
+
+```bat
+mosquitto_sub -h localhost -p 1883 -t "test/#" -v
+```
+
+2. Publish QoS0 vs QoS1:
+
+```bat
+mosquitto_pub -h localhost -p 1883 -t testing -m "qos0" -q 0
+mosquitto_pub -h localhost -p 1883 -t testing -m "qos1" -q 1
+```
+
+3. Retain status:
+
+```bat
+mosquitto_pub -h localhost -p 1883 -t "devices/x/status" -m "online" -r
+```
+
+Sau đó mở sub **sau** để thấy retained:
+
+```bat
+mosquitto_sub -h localhost -p 1883 -t "devices/x/status" -v
+```
+
+4. Xoá retained:
+
+```bat
+mosquitto_pub -h localhost -p 1883 -t "devices/x/status" -n -r
+```
+
+5. Publish JSON (PowerShell):
+
+```powershell
+mosquitto_pub -h localhost -p 1883 -t sensors/room1/temp -m '{"temp":27.5,"unit":"C"}'
+```
+
+---
+
+## Notes / Tips nhớ nhanh
+
+* **Telemetry** thường **không retain**.
+* **Status** thường **retain** (online/offline).
+* **QoS1** có thể trùng message → app nên chịu được trùng.
+* Debug chuẩn: **BROKER (-v) → SUB (#) → PUB**.

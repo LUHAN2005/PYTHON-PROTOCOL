@@ -2,7 +2,7 @@
 
 > Mục tiêu: File này là **tổng hợp góc nhìn bao quát** về MQTT Publisher/Subscriber.
 >
-> * Có **mã giả (pseudo-code)** để nhớ cấu trúc.
+> * Có **mã giả dạng form khung** để nhớ cấu trúc và điền logic vào.
 > * Có **giải thích ý nghĩa** từng phần: viết ở đâu, vì sao viết như vậy.
 > * Có **lệnh CLI copy/paste** để test nhanh.
 
@@ -118,11 +118,116 @@ Vì cả hai đều là **MQTT client**, nên đều phải:
 
 ---
 
-## 6) Topic layout khuyến nghị (IoT basic mà chuẩn)
+## 6) Quy tắc đặt Topic & Payload (IoT basic mà chuẩn)
 
-* `devices/<id>/status` (retain) → online/offline/state
-* `devices/<id>/telemetry` (no retain) → data liên tục
-* (tuỳ) `devices/<id>/cmd` → lệnh điều khiển
+### 6.1 Topic là gì?
+
+**Topic = chuỗi phân cấp dùng để định tuyến (routing)**.
+Broker không “hiểu nghĩa” topic; broker chỉ **match topic filter** của subscriber.
+
+Ví dụ topic:
+
+* `devices/LUHAN/status`
+* `devices/LUHAN/telemetry`
+* `env/room1/temp`
+
+### 6.2 Cấu trúc topic khuyến nghị
+
+Mẫu phổ biến (IoT basic):
+
+* **State (retain):** `devices/<device_id>/status`
+* **Data (no retain):** `devices/<device_id>/telemetry`
+* (tuỳ) **Command:** `devices/<device_id>/cmd` hoặc `devices/<device_id>/cmd/<action>`
+
+Ví dụ:
+
+* `devices/LUHAN/status`
+* `devices/LUHAN/telemetry`
+* `devices/LUHAN/cmd/reboot`
+
+### 6.3 Best practice khi đặt topic
+
+**(1) Tách state và data**
+
+* `status` → retain=True (online/offline/config)
+* `telemetry` → retain=False (dữ liệu liên tục)
+
+**(2) Đặt để subscriber dễ wildcard**
+Nếu theo mẫu `devices/<id>/<kind>` thì sub cực tiện:
+
+* status của mọi device: `devices/+/status`
+* telemetry của mọi device: `devices/+/telemetry`
+* debug tất cả dưới devices: `devices/#`
+
+**(3) Đừng nhét dữ liệu vào topic**
+Không nên:
+
+* `devices/LUHAN/telemetry/5cm`
+
+Nên:
+
+* `devices/LUHAN/telemetry` + payload chứa `h_cm=5`
+
+**(4) Quy ước đặt tên để đỡ lỗi**
+
+* không dấu cách
+* tránh ký tự lạ
+* thống nhất chữ thường nếu team thích
+* không thêm dấu `/` ở cuối
+
+### 6.4 Cách lấy/route theo topic ở Subscriber
+
+**Cách A — Route nhanh theo đuôi topic**
+
+* `topic.endswith("/status")` → xử lý state
+* `topic.endswith("/telemetry")` → xử lý data
+
+**Cách B — Tách cấp bằng `split("/")` để lấy device_id**
+Nếu topic theo mẫu `devices/<id>/<kind>`:
+
+* `parts = topic.split("/")`
+* `parts[0]` = `devices`
+* `parts[1]` = `<device_id>`
+* `parts[2]` = `status` hoặc `telemetry`
+
+**Cách C — Match chính xác (khi cần)**
+
+* `topic == "devices/LUHAN/status"`
+
+### 6.5 Payload là gì?
+
+**Payload = bytes**. Bạn có thể gửi:
+
+* text: `"hi"`
+* số (dưới dạng string): `"27.5"`
+* JSON: `{ "temp": 27.5 }`
+* binary: file
+
+> MQTT không tự hiểu JSON. JSON chỉ là quy ước tầng ứng dụng của bạn.
+
+### 6.6 Quy tắc payload (dễ parse + dễ mở rộng)
+
+**Option 1 — Text đơn giản (dễ nhất):**
+
+* payload = `"5"` (ví dụ h_cm)
+
+**Option 2 — JSON (chuẩn mở rộng):**
+
+* payload = `{ "h_cm": 5, "ts": 1700000000, "seq": 12 }`
+
+Gợi ý schema JSON tối thiểu cho telemetry:
+
+* `ts` (timestamp)
+* `seq` (số thứ tự tăng dần)
+* các field data (`h_cm`, `temp`, ...)
+
+### 6.7 Cách đọc payload ở Subscriber (tư duy)
+
+1. `msg.payload` (bytes)
+2. decode → string (nếu là text/JSON)
+3. (tuỳ) `.strip()` bỏ `\n`/space thừa
+4. nếu JSON → parse → lấy field
+5. tính toán/lưu/vẽ
 
 ---
 
@@ -381,6 +486,12 @@ mosquitto_pub -h localhost -p 1883 -t devices/LUHAN/status -m "online" -q 1 -r
 
 ```bat
 mosquitto_pub -h localhost -p 1883 -t devices/LUHAN/status -n -r
+```
+
+* Telemetry JSON (PowerShell):
+
+```powershell
+mosquitto_pub -h localhost -p 1883 -t devices/LUHAN/telemetry -m '{"ts":1700000000,"seq":1,"h_cm":5}' -q 1
 ```
 
 ---
